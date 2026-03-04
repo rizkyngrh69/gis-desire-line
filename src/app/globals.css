@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background: #0f1117;
+  color: white;
+  margin: 0;
+  padding: 0;
+}
+
+/* Override maplibre canvas cursor */
+.maplibregl-canvas {
+  cursor: grab !important;
+}
+
+.maplibregl-canvas:active {
+  cursor: grabbing !important;
+}
+
+/* Deck.gl container fills parent */
+#deckgl-wrapper,
+#deckgl-overlay {
+  width: 100%;
+  height: 100%;
+}
+
+/* Remove maplibre attribution styling conflicts */
+.maplibregl-ctrl-attrib {
+  font-size: 10px !important;
+  opacity: 0.5;
+}
+
+/* Range input styling */
+input[type="range"] {
+  cursor: pointer;
+}
+
+/* Themed scrollbar */
+.scrollbar-themed {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2d3e #0f1117;
+}
+.scrollbar-themed::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-themed::-webkit-scrollbar-track {
+  background: #0f1117;
+  border-radius: 4px;
+}
+.scrollbar-themed::-webkit-scrollbar-thumb {
+  background: #2a2d3e;
+  border-radius: 4px;
+  border: 1px solid #1a1d2e;
+}
+.scrollbar-themed::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+.scrollbar-themed::-webkit-scrollbar-corner {
+  background: #0f1117;
+}
