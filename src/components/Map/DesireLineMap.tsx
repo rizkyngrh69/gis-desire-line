@@ -115,9 +115,13 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
   const mapStyle = BASEMAPS.find((b) => b.id === basemapId)!.url;
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
-  const [previewData, setPreviewData] = useState<{ dataUrl: string; format: DownloadFormat } | null>(null);
+  const [previewData, setPreviewData] = useState<{ mapUrl: string; format: DownloadFormat; canvasW: number; canvasH: number } | null>(null);
+  const [sectionStates, setSectionStates] = useState<Record<string, { x: number; y: number; scale: number }>>({});
   const containerRef = useRef<HTMLDivElement>(null);
   const deckSnapshotRef = useRef<HTMLCanvasElement | null>(null);
+  const previewImgRef = useRef<HTMLImageElement>(null);
+  const sectionDragRef = useRef<{ key: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const sectionResizeRef = useRef<{ key: string; sx: number; os: number } | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -319,7 +323,103 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
     return [lineLayer, arrowLayer, nodeCircleLayer, labelLayer].filter(Boolean);
   }, [arcs, maxPassengers, maxRankByDir, maxArcWidth, is3D, lineWeightMode, arrowStyle, showLabels, cityNodes]);
 
-  function captureComposite(format: DownloadFormat): string | null {
+  function drawExportTable(
+    ctx: CanvasRenderingContext2D,
+    sections: Record<string, { x: number; y: number; scale: number }>
+  ): void {
+    const isLight = basemapId === "light" || basemapId === "light-clean" || basemapId === "voyager";
+    const theme = isLight
+      ? { bg: "rgba(255,255,255,0.93)", border: "rgba(200,205,220,0.9)", headerBg: "rgba(0,0,0,0.04)", headerText: "#1e1f2e", rankText: "#6b7280", bodyText: "#111827", rowAlt: "rgba(240,242,250,0.7)", divider: "rgba(200,205,220,0.5)" }
+      : { bg: "rgba(26,29,46,0.92)", border: "rgba(42,45,62,0.9)", headerBg: "rgba(255,255,255,0.04)", headerText: "rgba(255,255,255,0.9)", rankText: "rgba(139,143,168,0.9)", bodyText: "rgba(255,255,255,0.85)", rowAlt: "rgba(255,255,255,0.03)", divider: "rgba(42,45,62,0.6)" };
+
+    const allRows: Record<string, ArcDatum[]> = {
+      KELUAR: [...arcs].filter(a => a.direction === "KELUAR").sort((a, b) => a.rank - b.rank).slice(0, 10),
+      MASUK:  [...arcs].filter(a => a.direction === "MASUK").sort((a, b) => a.rank - b.rank).slice(0, 10),
+      NONE:   [...arcs].filter(a => !a.direction || a.direction === "NONE").sort((a, b) => a.rank - b.rank).slice(0, 10),
+    };
+
+    function drawOneSection(rows: ArcDatum[], dir: FlowDirection, pos: { x: number; y: number; scale: number }): void {
+      if (rows.length === 0) return;
+      const { x, y, scale } = pos;
+      const COL_W = [36, 100, 100, 80].map(w => w * scale);
+      const tableW = COL_W.reduce((s, w) => s + w, 0);
+      const ROW_H = 22 * scale;
+      const SEC_H = 24 * scale;
+      const HDR_H = 20 * scale;
+      const TOTAL_HDR = SEC_H + HDR_H;
+      const PADDING = 8 * scale;
+      const tableH = TOTAL_HDR + rows.length * ROW_H + PADDING;
+      const dirColor = dir === "KELUAR" ? "#fb923c" : dir === "MASUK" ? "#34d399" : "#6366f1";
+      const secBg    = dir === "KELUAR" ? "rgba(251,146,60,0.18)"  : dir === "MASUK" ? "rgba(52,211,153,0.18)"  : "rgba(99,102,241,0.18)";
+      const secBdr   = dir === "KELUAR" ? "rgba(251,146,60,0.5)"   : dir === "MASUK" ? "rgba(52,211,153,0.5)"   : "rgba(99,102,241,0.5)";
+
+      ctx.save();
+      ctx.fillStyle = theme.bg;
+      ctx.beginPath();
+      ctx.roundRect(x, y, tableW, tableH, 6 * scale);
+      ctx.fill();
+      ctx.strokeStyle = theme.border;
+      ctx.lineWidth = scale;
+      ctx.stroke();
+
+      ctx.fillStyle = secBg;
+      ctx.beginPath();
+      ctx.roundRect(x, y, tableW, SEC_H, [6 * scale, 6 * scale, 0, 0]);
+      ctx.fill();
+      ctx.font = `bold ${12 * scale}px system-ui, sans-serif`;
+      ctx.fillStyle = dirColor;
+      ctx.textBaseline = "middle";
+      ctx.fillText(dir, x + 8 * scale, y + SEC_H / 2);
+
+      ctx.fillStyle = theme.headerBg;
+      ctx.fillRect(x, y + SEC_H, tableW, HDR_H);
+      ctx.strokeStyle = secBdr;
+      ctx.lineWidth = scale;
+      ctx.beginPath();
+      ctx.moveTo(x, y + TOTAL_HDR);
+      ctx.lineTo(x + tableW, y + TOTAL_HDR);
+      ctx.stroke();
+
+      const colHdrs = ["#", "Asal", "Tujuan", "Total"];
+      ctx.font = `bold ${10 * scale}px system-ui, sans-serif`;
+      ctx.fillStyle = theme.headerText;
+      let cx = x;
+      colHdrs.forEach((h, i) => { ctx.fillText(h, cx + 6 * scale, y + SEC_H + HDR_H / 2); cx += COL_W[i]; });
+
+      rows.forEach((arc, rowIdx) => {
+        const ry = y + TOTAL_HDR + rowIdx * ROW_H;
+        if (rowIdx % 2 === 0) { ctx.fillStyle = theme.rowAlt; ctx.fillRect(x, ry, tableW, ROW_H); }
+        ctx.fillStyle = dirColor;
+        ctx.beginPath();
+        ctx.arc(x + 8 * scale, ry + ROW_H / 2, 3 * scale, 0, Math.PI * 2);
+        ctx.fill();
+        const cells = [String(arc.rank), arc.from.name, arc.to.name, arc.totalPassengers.toLocaleString()];
+        ctx.textBaseline = "middle";
+        cx = x;
+        cells.forEach((cell, i) => {
+          ctx.font = i === 3 ? `bold ${10*scale}px system-ui, sans-serif` : `${10*scale}px system-ui, sans-serif`;
+          ctx.fillStyle = i === 3 ? dirColor : i === 0 ? theme.rankText : theme.bodyText;
+          ctx.fillText(cell, cx + (i === 0 ? 16 * scale : 6 * scale), ry + ROW_H / 2, COL_W[i] - 8 * scale);
+          cx += COL_W[i];
+        });
+        ctx.strokeStyle = theme.divider;
+        ctx.lineWidth = 0.5 * scale;
+        ctx.beginPath();
+        ctx.moveTo(x, ry + ROW_H);
+        ctx.lineTo(x + tableW, ry + ROW_H);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    (["KELUAR", "MASUK", "NONE"] as FlowDirection[]).forEach(dir => {
+      const pos = sections[dir];
+      const rows = allRows[dir];
+      if (pos && rows.length > 0) drawOneSection(rows, dir, pos);
+    });
+  }
+
+  function captureMapOnly(): { url: string; w: number; h: number } | null {
     const container = containerRef.current;
     if (!container) return null;
     const mapCanvas = container.querySelector<HTMLCanvasElement>(".maplibregl-canvas");
@@ -327,25 +427,66 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
     const w = mapCanvas.width;
     const h = mapCanvas.height;
     const out = document.createElement("canvas");
-    out.width = w;
-    out.height = h;
+    out.width = w; out.height = h;
     const ctx = out.getContext("2d")!;
     ctx.drawImage(mapCanvas, 0, 0);
     if (deckSnapshotRef.current) ctx.drawImage(deckSnapshotRef.current, 0, 0);
+    return { url: out.toDataURL("image/png", 0.95), w, h };
+  }
+
+  function captureWithTable(format: DownloadFormat): string | null {
+    if (!previewData || !previewImgRef.current) return null;
+    const container = containerRef.current;
+    if (!container) return null;
+    const mapCanvas = container.querySelector<HTMLCanvasElement>(".maplibregl-canvas");
+    if (!mapCanvas) return null;
+    const imgEl = previewImgRef.current;
+    const scaleX = previewData.canvasW / (imgEl.clientWidth || 1);
+    const scaleY = previewData.canvasH / (imgEl.clientHeight || 1);
+    const out = document.createElement("canvas");
+    out.width = previewData.canvasW; out.height = previewData.canvasH;
+    const ctx = out.getContext("2d")!;
+    ctx.drawImage(mapCanvas, 0, 0);
+    if (deckSnapshotRef.current) ctx.drawImage(deckSnapshotRef.current, 0, 0);
+    const canvasSections: Record<string, { x: number; y: number; scale: number }> = {};
+    Object.entries(sectionStates).forEach(([key, s]) => {
+      canvasSections[key] = { x: s.x * scaleX, y: s.y * scaleY, scale: s.scale * scaleX };
+    });
+    drawExportTable(ctx, canvasSections);
     const mime = format === "jpg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
     return out.toDataURL(mime, 0.95);
   }
 
   function requestPreview(format: DownloadFormat): void {
     setShowDownloadMenu(false);
-    const dataUrl = captureComposite(format);
-    if (dataUrl) setPreviewData({ dataUrl, format });
+    const result = captureMapOnly();
+    if (!result) return;
+    const dpr = window.devicePixelRatio || 1;
+    const approxImgH = result.h / dpr;
+    const maxRows = (dir: string) => Math.min(10, arcs.filter(a => (a.direction ?? "NONE") === dir).length);
+    const approxTableH = (dir: string) => 44 + maxRows(dir) * 22 + 8;
+    const TABLE_W = 316 + 10;
+    const newStates: Record<string, { x: number; y: number; scale: number }> = {};
+    let xOff = 16;
+    (["KELUAR", "MASUK", "NONE"] as FlowDirection[]).forEach(dir => {
+      const count = dir === "NONE"
+        ? arcs.filter(a => !a.direction || a.direction === "NONE").length
+        : arcs.filter(a => a.direction === dir).length;
+      if (count > 0) {
+        newStates[dir] = { x: xOff, y: Math.max(16, approxImgH - approxTableH(dir) - 16), scale: 1 };
+        xOff += TABLE_W;
+      }
+    });
+    setSectionStates(newStates);
+    setPreviewData({ mapUrl: result.url, format, canvasW: result.w, canvasH: result.h });
   }
 
   function savePreview(): void {
     if (!previewData) return;
+    const dataUrl = captureWithTable(previewData.format);
+    if (!dataUrl) return;
     const a = document.createElement("a");
-    a.href = previewData.dataUrl;
+    a.href = dataUrl;
     a.download = `desire-lines-${Date.now()}.${previewData.format}`;
     a.click();
     setPreviewData(null);
@@ -469,76 +610,154 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
         </div>
       </div>
 
-      {previewData && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={() => setPreviewData(null)}
-        >
-          <div
-            className="bg-panel border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
-            style={{ maxWidth: "80vw", maxHeight: "80vh" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-              <div>
-                <span className="text-sm font-semibold text-white">Export Preview</span>
-                <span className="ml-2 text-xs text-muted uppercase tracking-wider">{previewData.format}</span>
-              </div>
-              <button
-                onClick={() => setPreviewData(null)}
-                className="text-muted hover:text-white transition-colors text-lg leading-none"
-              >
-                ×
-              </button>
-            </div>
+      {previewData && (() => {
+        const isLight = basemapId === "light" || basemapId === "light-clean" || basemapId === "voyager";
+        const tBg      = isLight ? "rgba(255,255,255,0.93)" : "rgba(26,29,46,0.92)";
+        const tBorder  = isLight ? "rgba(200,205,220,0.9)" : "rgba(42,45,62,0.9)";
+        const tHdrTxt  = isLight ? "#1e1f2e" : "rgba(255,255,255,0.9)";
+        const tBody    = isLight ? "#111827" : "rgba(255,255,255,0.85)";
+        const tRowAlt  = isLight ? "rgba(240,242,250,0.7)" : "rgba(255,255,255,0.04)";
+        const tDivider = isLight ? "rgba(200,205,220,0.5)" : "rgba(42,45,62,0.6)";
+        const tHdrBg   = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
 
-            <div className="overflow-auto flex-1 p-4 scrollbar-themed">
-              <img
-                src={previewData.dataUrl}
-                alt="Map export preview"
-                className="rounded-lg border border-border/50 block"
-                style={{ maxWidth: "100%", height: "auto" }}
-              />
-            </div>
+        const keluarRows = [...arcs].filter(a => a.direction === "KELUAR").sort((a,b) => a.rank - b.rank).slice(0, 10);
+        const masukRows  = [...arcs].filter(a => a.direction === "MASUK").sort((a,b) => a.rank - b.rank).slice(0, 10);
+        const noneRows   = [...arcs].filter(a => !a.direction || a.direction === "NONE").sort((a,b) => a.rank - b.rank).slice(0, 10);
 
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0 gap-3">
-              <div className="flex gap-1 p-0.5 bg-surface rounded-lg">
-                {(["png", "jpg", "webp"] as const).map((fmt) => (
-                  <button
-                    key={fmt}
-                    onClick={() => requestPreview(fmt)}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors uppercase tracking-wider ${
-                      previewData.format === fmt
-                        ? "bg-accent text-white font-semibold"
-                        : "text-muted hover:text-white"
-                    }`}
-                  >
-                    {fmt}
-                  </button>
+        function renderSection(rows: ArcDatum[], dir: FlowDirection) {
+          if (rows.length === 0) return null;
+          const dc  = dir === "KELUAR" ? "#fb923c" : dir === "MASUK" ? "#34d399" : "#6366f1";
+          const sBg = dir === "KELUAR" ? "rgba(251,146,60,0.15)" : dir === "MASUK" ? "rgba(52,211,153,0.15)" : "rgba(99,102,241,0.15)";
+          const sBd = dir === "KELUAR" ? "rgba(251,146,60,0.45)" : dir === "MASUK" ? "rgba(52,211,153,0.45)" : "rgba(99,102,241,0.45)";
+          return (
+            <div key={dir} style={{ background: tBg, border: `1px solid ${tBorder}`, borderRadius: 6, overflow: "hidden", fontSize: 10, minWidth: 316 }}>
+              <div style={{ background: sBg, borderBottom: `1px solid ${sBd}`, padding: "4px 8px", fontWeight: 700, fontSize: 11, color: dc }}>{dir}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "36px 100px 100px 80px", background: tHdrBg, borderBottom: `1px solid ${sBd}` }}>
+                {["#", "Asal", "Tujuan", "Total"].map(h => (
+                  <div key={h} style={{ padding: "2px 6px", fontWeight: 600, color: tHdrTxt }}>{h}</div>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPreviewData(null)}
-                  className="px-3 py-1.5 text-xs rounded-lg border border-border text-muted hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={savePreview}
-                  className="px-4 py-1.5 text-xs rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold transition-colors flex items-center gap-1.5"
-                >
-                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 1v7M3.5 5.5L6 8l2.5-2.5" />
-                    <path d="M1 10h10" />
-                  </svg>
-                  Save
-                </button>
+              {rows.map((arc, i) => (
+                <div key={arc.rank} style={{ display: "grid", gridTemplateColumns: "36px 100px 100px 80px", background: i % 2 === 0 ? tRowAlt : "transparent", borderBottom: `0.5px solid ${tDivider}` }}>
+                  <div style={{ padding: "2px 4px", color: dc, fontWeight: 700 }}>{arc.rank}</div>
+                  <div style={{ padding: "2px 4px", color: tBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{arc.from.name}</div>
+                  <div style={{ padding: "2px 4px", color: tBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{arc.to.name}</div>
+                  <div style={{ padding: "2px 4px", color: dc, fontWeight: 700 }}>{arc.totalPassengers.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={() => setPreviewData(null)}
+          >
+            <div
+              className="bg-panel border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+              style={{ maxWidth: "92vw", maxHeight: "90vh" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+                <div>
+                  <span className="text-sm font-semibold text-white">Export Preview</span>
+                  <span className="ml-2 text-xs text-muted uppercase tracking-wider">{previewData.format}</span>
+                  <span className="ml-3 text-xs text-muted/50">Drag each table individually · resize handle ↘</span>
+                </div>
+                <button onClick={() => setPreviewData(null)} className="text-muted hover:text-white transition-colors text-lg leading-none">×</button>
+              </div>
+
+              <div className="overflow-auto flex-1 p-4 scrollbar-themed">
+                <div className="relative inline-block">
+                  <img
+                    ref={previewImgRef}
+                    src={previewData.mapUrl}
+                    alt="Map preview"
+                    className="rounded-lg border border-border/50 block"
+                    style={{ maxWidth: "100%", height: "auto", display: "block" }}
+                  />
+                  {(["KELUAR", "MASUK", "NONE"] as FlowDirection[]).map(dir => {
+                    const rows = dir === "KELUAR" ? keluarRows : dir === "MASUK" ? masukRows : noneRows;
+                    if (rows.length === 0) return null;
+                    const s = sectionStates[dir] ?? { x: 16, y: 16, scale: 1 };
+                    return (
+                      <div
+                        key={dir}
+                        style={{
+                          position: "absolute",
+                          left: s.x,
+                          top: s.y,
+                          transform: `scale(${s.scale})`,
+                          transformOrigin: "top left",
+                          cursor: "grab",
+                          userSelect: "none",
+                          touchAction: "none",
+                        }}
+                        onPointerDown={(e) => {
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          const isResize = !!(e.target as HTMLElement).closest("[data-handle='resize']");
+                          if (isResize) {
+                            sectionResizeRef.current = { key: dir, sx: e.clientX, os: s.scale };
+                          } else {
+                            sectionDragRef.current = { key: dir, sx: e.clientX, sy: e.clientY, ox: s.x, oy: s.y };
+                          }
+                        }}
+                        onPointerMove={(e) => {
+                          if (sectionDragRef.current?.key === dir) {
+                            const d = sectionDragRef.current;
+                            setSectionStates(prev => ({ ...prev, [dir]: { ...prev[dir], x: d.ox + e.clientX - d.sx, y: d.oy + e.clientY - d.sy } }));
+                          }
+                          if (sectionResizeRef.current?.key === dir) {
+                            const r = sectionResizeRef.current;
+                            setSectionStates(prev => ({ ...prev, [dir]: { ...prev[dir], scale: Math.max(0.4, Math.min(3, r.os + (e.clientX - r.sx) / 300)) } }));
+                          }
+                        }}
+                        onPointerUp={() => { sectionDragRef.current = null; sectionResizeRef.current = null; }}
+                      >
+                        <div style={{ position: "relative", display: "inline-block" }}>
+                          {renderSection(rows, dir)}
+                          <div
+                            data-handle="resize"
+                            style={{ position: "absolute", bottom: 0, right: 0, width: 16, height: 16, cursor: "se-resize", background: "rgba(99,102,241,0.6)", borderRadius: "0 0 4px 0", borderTop: "1px solid rgba(99,102,241,0.9)", borderLeft: "1px solid rgba(99,102,241,0.9)" }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0 gap-3">
+                <div className="flex gap-1 p-0.5 bg-surface rounded-lg">
+                  {(["png", "jpg", "webp"] as const).map((fmt) => (
+                    <button key={fmt} onClick={() => requestPreview(fmt)}
+                      className={`px-2.5 py-1 text-xs rounded-md transition-colors uppercase tracking-wider ${
+                        previewData.format === fmt ? "bg-accent text-white font-semibold" : "text-muted hover:text-white"
+                      }`}>
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setPreviewData(null)}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-border text-muted hover:text-white transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={savePreview}
+                    className="px-4 py-1.5 text-xs rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold transition-colors flex items-center gap-1.5">
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6 1v7M3.5 5.5L6 8l2.5-2.5" />
+                      <path d="M1 10h10" />
+                    </svg>
+                    Save
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {tooltip && (
         <div
