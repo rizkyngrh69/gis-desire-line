@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import DeckGL from "@deck.gl/react";
-import { ArcLayer, LineLayer, IconLayer, TextLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { ArcLayer, PathLayer, IconLayer, TextLayer, ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
 import type { MapViewState, PickingInfo } from "@deck.gl/core";
 import type { ArcDatum, ArrowStyle, FlowDirection, LineWeightMode } from "@/types";
@@ -60,6 +60,43 @@ function getBearing(from: [number, number], to: [number, number]): number {
   const dx = to[0] - from[0];
   const dy = to[1] - from[1];
   return -(Math.atan2(dx, dy) * (180 / Math.PI));
+}
+
+function perpOffset(
+  from: [number, number],
+  to: [number, number],
+  scale: number
+): [number, number] {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  return [(-dy / len) * scale, (dx / len) * scale];
+}
+
+function buildCurvedPath(
+  from: [number, number],
+  to: [number, number],
+  side: number,
+  segments = 20
+): [number, number][] {
+  const cFrom = from[0] <= to[0] ? from : to;
+  const cTo = from[0] <= to[0] ? to : from;
+  const mx = (cFrom[0] + cTo[0]) / 2;
+  const my = (cFrom[1] + cTo[1]) / 2;
+  const dist = Math.sqrt((cTo[0] - cFrom[0]) ** 2 + (cTo[1] - cFrom[1]) ** 2);
+  const bulge = Math.max(0.08, dist * 0.15) * side;
+  const [px, py] = perpOffset(cFrom, cTo, bulge);
+  const cx = mx + px;
+  const cy = my + py;
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const u = 1 - t;
+    const x = u * u * from[0] + 2 * u * t * cx + t * t * to[0];
+    const y = u * u * from[1] + 2 * u * t * cy + t * t * to[1];
+    pts.push([x, y]);
+  }
+  return pts;
 }
 
 interface DesireLineMapProps {
@@ -173,6 +210,8 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
   const layers = useMemo(() => {
     const trigger = { lineWeightMode, maxArcWidth, maxPassengers };
 
+    const dirSide = (d: ArcDatum) => d.direction === "KELUAR" ? 1 : d.direction === "MASUK" ? -1 : 0;
+
     const lineLayer = is3D
       ? new ArcLayer<ArcDatum>({
           id: "desire-lines-arc",
@@ -181,6 +220,7 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
           getWidth: (d) => resolveWidth(d),
           getSourcePosition: (d) => d.from.coordinates,
           getTargetPosition: (d) => d.to.coordinates,
+          getHeight: (d) => d.direction === "KELUAR" ? 1.0 : d.direction === "MASUK" ? 0.6 : 0.8,
           getSourceColor: (d) => resolveColor(d),
           getTargetColor: (d) => resolveColor(d),
           onHover: hoverHandler,
@@ -190,16 +230,20 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
             getTargetColor: trigger,
           },
         })
-      : new LineLayer<ArcDatum>({
-          id: "desire-lines-flat",
+      : new PathLayer<ArcDatum>({
+          id: "desire-lines-curved",
           data: arcs,
           pickable: true,
+          getPath: (d) => buildCurvedPath(d.from.coordinates, d.to.coordinates, dirSide(d)),
           getWidth: (d) => resolveWidth(d),
-          getSourcePosition: (d) => d.from.coordinates,
-          getTargetPosition: (d) => d.to.coordinates,
           getColor: (d) => resolveColor(d),
+          widthUnits: "pixels",
+          widthMinPixels: 1,
+          jointRounded: true,
+          capRounded: true,
           onHover: hoverHandler,
           updateTriggers: {
+            getPath: trigger,
             getWidth: trigger,
             getColor: trigger,
           },
@@ -211,13 +255,15 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
             id: "desire-lines-arrows",
             data: arcs,
             pickable: false,
+            billboard: true,
             iconAtlas: ARROW_ICON_URL,
             iconMapping: ARROW_ICON_MAPPING,
             getIcon: () => "arrow",
             getPosition: (d) => d.to.coordinates,
             getSize: lineWeightMode === "weighted"
-              ? (d) => Math.max(10, rankWeight(d.rank, d.direction ?? "NONE") * 28)
-              : 14,
+              ? (d) => Math.max(18, rankWeight(d.rank, d.direction ?? "NONE") * 40)
+              : 22,
+            sizeMinPixels: 16,
             getColor: (d) => resolveColor(d),
             getAngle: (d) => getBearing(d.from.coordinates, d.to.coordinates),
             updateTriggers: {
@@ -266,6 +312,7 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
           getPixelOffset: [0, -6],
           pickable: false,
           billboard: true,
+          parameters: { depthTest: false },
         })
       : null;
 
