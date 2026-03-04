@@ -26,12 +26,12 @@ const VIEW_STATE_2D: MapViewState = {
 };
 
 const BASEMAPS = [
-  { id: "dark",       label: "Dark",         url: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" },
-  { id: "dark-clean", label: "Dark Clean",   url: "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json" },
-  { id: "light",      label: "Light",        url: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json" },
-  { id: "light-clean",label: "Light Clean",  url: "https://basemaps.cartocdn.com/gl/positron-nolabels-gl-style/style.json" },
-  { id: "voyager",    label: "Voyager",      url: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json" },
-  { id: "blank",      label: "Blank",        url: "https://demotiles.maplibre.org/style.json" },
+  { id: "dark",       label: "Dark",         url: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",            attribution: "© CARTO · © OpenStreetMap contributors" },
+  { id: "dark-clean", label: "Dark Clean",   url: "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json",   attribution: "© CARTO · © OpenStreetMap contributors" },
+  { id: "light",      label: "Light",        url: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",               attribution: "© CARTO · © OpenStreetMap contributors" },
+  { id: "light-clean",label: "Light Clean",  url: "https://basemaps.cartocdn.com/gl/positron-nolabels-gl-style/style.json",      attribution: "© CARTO · © OpenStreetMap contributors" },
+  { id: "voyager",    label: "Voyager",      url: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",                attribution: "© CARTO · © OpenStreetMap contributors" },
+  { id: "blank",      label: "Blank",        url: "https://demotiles.maplibre.org/style.json",                                   attribution: "© MapLibre" },
 ] as const;
 type BasemapId = (typeof BASEMAPS)[number]["id"];
 type DownloadFormat = "png" | "jpg" | "webp";
@@ -795,6 +795,21 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
           </div>
         </div>
       )}
+
+      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 pointer-events-none select-none">
+        <span className="text-[10px] text-white/30">
+          {BASEMAPS.find(b => b.id === basemapId)?.attribution}
+        </span>
+        <span className="text-white/20 text-[10px]">·</span>
+        <a
+          href="https://github.com/rizkyngrh23"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] text-white/30 hover:text-white/60 transition-colors pointer-events-auto"
+        >
+          © github.com/rizkyngrh23
+        </a>
+      </div>
     </div>
   );
 }
