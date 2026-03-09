@@ -2,9 +2,11 @@
 
 import { useState, useMemo } from "react";
 import dynamic from "next/dynamic";
-import type { DesireLineRecord } from "@/types";
+import type { DesireLineRecord, AppMode } from "@/types";
 import { buildArcData } from "@/utils/arcBuilder";
 import ControlPanel from "@/components/ControlPanel/ControlPanel";
+import TrainProcessorPanel from "@/components/TrainProcessor/TrainProcessorPanel";
+import Launcher from "@/components/Launcher/Launcher";
 
 const DesireLineMap = dynamic(
   () => import("@/components/Map/DesireLineMap"),
@@ -12,6 +14,7 @@ const DesireLineMap = dynamic(
 );
 
 export default function HomePage() {
+  const [appMode, setAppMode] = useState<AppMode>("launcher");
   const [records, setRecords] = useState<DesireLineRecord[]>([]);
   const [maxArcWidth, setMaxArcWidth] = useState<number>(12);
   const [lineWeightMode, setLineWeightMode] = useState<import("@/types").LineWeightMode>("weighted");
@@ -39,6 +42,18 @@ export default function HomePage() {
     };
   }, [arcs]);
 
+  if (appMode === "launcher") {
+    return <Launcher onSelect={setAppMode} />;
+  }
+
+  if (appMode === "train-processor") {
+    return (
+      <div className="flex h-screen w-screen overflow-hidden bg-surface text-white">
+        <TrainProcessorPanel onBack={() => setAppMode("launcher")} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface text-white">
       <div
@@ -56,6 +71,7 @@ export default function HomePage() {
           arrowStyle={arrowStyle}
           onArrowStyleChange={setArrowStyle}
           unknownCities={unknownCities}
+          onSwitchMode={() => setAppMode("launcher")}
         />
       </div>
 

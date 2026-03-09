@@ -15,6 +15,7 @@ interface ControlPanelProps {
   arrowStyle: ArrowStyle;
   onArrowStyleChange: (v: ArrowStyle) => void;
   unknownCities: string[];
+  onSwitchMode: () => void;
 }
 
 export default function ControlPanel({
@@ -27,6 +28,7 @@ export default function ControlPanel({
   arrowStyle,
   onArrowStyleChange,
   unknownCities,
+  onSwitchMode,
 }: ControlPanelProps) {
   const [importMode, setImportMode] = useState<"replace" | "append">(
     "replace"
@@ -59,11 +61,24 @@ export default function ControlPanel({
   return (
     <aside className="w-80 shrink-0 h-full bg-panel border-r border-border flex flex-col overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border shrink-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <div className="w-2 h-2 rounded-full bg-accent" />
-          <h1 className="text-sm font-semibold text-white tracking-tight">
-            Desire Lines Mapper
-          </h1>
+        <div className="flex items-center justify-between mb-0.5">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-accent" />
+            <h1 className="text-sm font-semibold text-white tracking-tight">
+              Desire Lines Mapper
+            </h1>
+          </div>
+          <button
+            onClick={onSwitchMode}
+            title="Back to App Home"
+            className="flex items-center gap-1 text-xs text-muted hover:text-white transition-colors border border-border hover:border-border rounded-md px-2 py-0.5"
+          >
+            <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 7 L7 2 L13 7" />
+              <path d="M3 6.5 L3 13 L6 13 L6 9.5 L8 9.5 L8 13 L11 13 L11 6.5" />
+            </svg>
+            Home
+          </button>
         </div>
         <p className="text-xs text-muted/70 ml-4">
           Origin–Destination flow visualizer

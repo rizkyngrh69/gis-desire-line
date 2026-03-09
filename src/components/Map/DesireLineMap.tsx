@@ -116,12 +116,12 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [previewData, setPreviewData] = useState<{ mapUrl: string; format: DownloadFormat; canvasW: number; canvasH: number } | null>(null);
-  const [sectionStates, setSectionStates] = useState<Record<string, { x: number; y: number; scale: number }>>({});
+  const [sectionStates, setSectionStates] = useState<Record<string, { x: number; y: number; scaleX: number; scaleY: number }>>({});
   const containerRef = useRef<HTMLDivElement>(null);
   const deckSnapshotRef = useRef<HTMLCanvasElement | null>(null);
   const previewImgRef = useRef<HTMLImageElement>(null);
   const sectionDragRef = useRef<{ key: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
-  const sectionResizeRef = useRef<{ key: string; sx: number; os: number } | null>(null);
+  const sectionResizeRef = useRef<{ key: string; edge: "h" | "v" | "d"; sx: number; sy: number; osx: number; osy: number } | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -325,7 +325,7 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
 
   function drawExportTable(
     ctx: CanvasRenderingContext2D,
-    sections: Record<string, { x: number; y: number; scale: number }>
+    sections: Record<string, { x: number; y: number; scaleX: number; scaleY: number }>
   ): void {
     const isLight = basemapId === "light" || basemapId === "light-clean" || basemapId === "voyager";
     const theme = isLight
@@ -338,77 +338,89 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
       NONE:   [...arcs].filter(a => !a.direction || a.direction === "NONE").sort((a, b) => a.rank - b.rank).slice(0, 10),
     };
 
-    function drawOneSection(rows: ArcDatum[], dir: FlowDirection, pos: { x: number; y: number; scale: number }): void {
+    function drawOneSection(rows: ArcDatum[], dir: FlowDirection, pos: { x: number; y: number; scaleX: number; scaleY: number }): void {
       if (rows.length === 0) return;
-      const { x, y, scale } = pos;
-      const COL_W = [36, 100, 100, 80].map(w => w * scale);
-      const tableW = COL_W.reduce((s, w) => s + w, 0);
-      const ROW_H = 22 * scale;
-      const SEC_H = 24 * scale;
-      const HDR_H = 20 * scale;
+      const { x, y, scaleX, scaleY } = pos;
+      const BASE_COL_W = [36, 100, 100, 80];
+      const tableW = BASE_COL_W.reduce((s, w) => s + w, 0);
+      const ROW_H = 22;
+      const SEC_H = 24;
+      const HDR_H = 20;
       const TOTAL_HDR = SEC_H + HDR_H;
-      const PADDING = 8 * scale;
+      const PADDING = 8;
       const tableH = TOTAL_HDR + rows.length * ROW_H + PADDING;
+      const fontScale = Math.sqrt(scaleX * scaleY);
       const dirColor = dir === "KELUAR" ? "#fb923c" : dir === "MASUK" ? "#34d399" : "#6366f1";
       const secBg    = dir === "KELUAR" ? "rgba(251,146,60,0.18)"  : dir === "MASUK" ? "rgba(52,211,153,0.18)"  : "rgba(99,102,241,0.18)";
       const secBdr   = dir === "KELUAR" ? "rgba(251,146,60,0.5)"   : dir === "MASUK" ? "rgba(52,211,153,0.5)"   : "rgba(99,102,241,0.5)";
 
       ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scaleX, scaleY);
+
       ctx.fillStyle = theme.bg;
       ctx.beginPath();
-      ctx.roundRect(x, y, tableW, tableH, 6 * scale);
+      ctx.roundRect(0, 0, tableW, tableH, 6);
       ctx.fill();
       ctx.strokeStyle = theme.border;
-      ctx.lineWidth = scale;
+      ctx.lineWidth = 1 / Math.min(scaleX, scaleY);
       ctx.stroke();
 
       ctx.fillStyle = secBg;
       ctx.beginPath();
-      ctx.roundRect(x, y, tableW, SEC_H, [6 * scale, 6 * scale, 0, 0]);
+      ctx.roundRect(0, 0, tableW, SEC_H, [6, 6, 0, 0]);
       ctx.fill();
-      ctx.font = `bold ${12 * scale}px system-ui, sans-serif`;
+      ctx.save();
+      ctx.scale(1 / scaleX, 1 / scaleY);
+      ctx.font = `bold ${12 * fontScale}px system-ui, sans-serif`;
       ctx.fillStyle = dirColor;
       ctx.textBaseline = "middle";
-      ctx.fillText(dir, x + 8 * scale, y + SEC_H / 2);
+      ctx.fillText(dir, 8 * scaleX, SEC_H * scaleY / 2);
 
       ctx.fillStyle = theme.headerBg;
-      ctx.fillRect(x, y + SEC_H, tableW, HDR_H);
+      ctx.fillRect(0, SEC_H * scaleY, tableW * scaleX, HDR_H * scaleY);
       ctx.strokeStyle = secBdr;
-      ctx.lineWidth = scale;
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x, y + TOTAL_HDR);
-      ctx.lineTo(x + tableW, y + TOTAL_HDR);
+      ctx.moveTo(0, TOTAL_HDR * scaleY);
+      ctx.lineTo(tableW * scaleX, TOTAL_HDR * scaleY);
       ctx.stroke();
 
       const colHdrs = ["#", "Asal", "Tujuan", "Total"];
-      ctx.font = `bold ${10 * scale}px system-ui, sans-serif`;
+      ctx.font = `bold ${10 * fontScale}px system-ui, sans-serif`;
       ctx.fillStyle = theme.headerText;
-      let cx = x;
-      colHdrs.forEach((h, i) => { ctx.fillText(h, cx + 6 * scale, y + SEC_H + HDR_H / 2); cx += COL_W[i]; });
+      let cx = 0;
+      colHdrs.forEach((h, i) => {
+        ctx.fillText(h, cx * scaleX + 6, SEC_H * scaleY + HDR_H * scaleY / 2);
+        cx += BASE_COL_W[i];
+      });
 
       rows.forEach((arc, rowIdx) => {
-        const ry = y + TOTAL_HDR + rowIdx * ROW_H;
-        if (rowIdx % 2 === 0) { ctx.fillStyle = theme.rowAlt; ctx.fillRect(x, ry, tableW, ROW_H); }
+        const ry = TOTAL_HDR + rowIdx * ROW_H;
+        if (rowIdx % 2 === 0) {
+          ctx.fillStyle = theme.rowAlt;
+          ctx.fillRect(0, ry * scaleY, tableW * scaleX, ROW_H * scaleY);
+        }
         ctx.fillStyle = dirColor;
         ctx.beginPath();
-        ctx.arc(x + 8 * scale, ry + ROW_H / 2, 3 * scale, 0, Math.PI * 2);
+        ctx.arc(8 * scaleX, (ry + ROW_H / 2) * scaleY, 3 * fontScale, 0, Math.PI * 2);
         ctx.fill();
         const cells = [String(arc.rank), arc.from.name, arc.to.name, arc.totalPassengers.toLocaleString()];
-        ctx.textBaseline = "middle";
-        cx = x;
+        cx = 0;
         cells.forEach((cell, i) => {
-          ctx.font = i === 3 ? `bold ${10*scale}px system-ui, sans-serif` : `${10*scale}px system-ui, sans-serif`;
+          ctx.font = i === 3 ? `bold ${10 * fontScale}px system-ui, sans-serif` : `${10 * fontScale}px system-ui, sans-serif`;
           ctx.fillStyle = i === 3 ? dirColor : i === 0 ? theme.rankText : theme.bodyText;
-          ctx.fillText(cell, cx + (i === 0 ? 16 * scale : 6 * scale), ry + ROW_H / 2, COL_W[i] - 8 * scale);
-          cx += COL_W[i];
+          ctx.fillText(cell, cx * scaleX + (i === 0 ? 16 * scaleX : 6), (ry + ROW_H / 2) * scaleY, (BASE_COL_W[i] - 8) * scaleX);
+          cx += BASE_COL_W[i];
         });
         ctx.strokeStyle = theme.divider;
-        ctx.lineWidth = 0.5 * scale;
+        ctx.lineWidth = 0.5;
         ctx.beginPath();
-        ctx.moveTo(x, ry + ROW_H);
-        ctx.lineTo(x + tableW, ry + ROW_H);
+        ctx.moveTo(0, (ry + ROW_H) * scaleY);
+        ctx.lineTo(tableW * scaleX, (ry + ROW_H) * scaleY);
         ctx.stroke();
       });
+      ctx.restore();
       ctx.restore();
     }
 
@@ -441,16 +453,16 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
     const mapCanvas = container.querySelector<HTMLCanvasElement>(".maplibregl-canvas");
     if (!mapCanvas) return null;
     const imgEl = previewImgRef.current;
-    const scaleX = previewData.canvasW / (imgEl.clientWidth || 1);
-    const scaleY = previewData.canvasH / (imgEl.clientHeight || 1);
+    const imgScaleX = previewData.canvasW / (imgEl.clientWidth || 1);
+    const imgScaleY = previewData.canvasH / (imgEl.clientHeight || 1);
     const out = document.createElement("canvas");
     out.width = previewData.canvasW; out.height = previewData.canvasH;
     const ctx = out.getContext("2d")!;
     ctx.drawImage(mapCanvas, 0, 0);
     if (deckSnapshotRef.current) ctx.drawImage(deckSnapshotRef.current, 0, 0);
-    const canvasSections: Record<string, { x: number; y: number; scale: number }> = {};
+    const canvasSections: Record<string, { x: number; y: number; scaleX: number; scaleY: number }> = {};
     Object.entries(sectionStates).forEach(([key, s]) => {
-      canvasSections[key] = { x: s.x * scaleX, y: s.y * scaleY, scale: s.scale * scaleX };
+      canvasSections[key] = { x: s.x * imgScaleX, y: s.y * imgScaleY, scaleX: s.scaleX * imgScaleX, scaleY: s.scaleY * imgScaleY };
     });
     drawExportTable(ctx, canvasSections);
     const mime = format === "jpg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
@@ -466,14 +478,14 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
     const maxRows = (dir: string) => Math.min(10, arcs.filter(a => (a.direction ?? "NONE") === dir).length);
     const approxTableH = (dir: string) => 44 + maxRows(dir) * 22 + 8;
     const TABLE_W = 316 + 10;
-    const newStates: Record<string, { x: number; y: number; scale: number }> = {};
+    const newStates: Record<string, { x: number; y: number; scaleX: number; scaleY: number }> = {};
     let xOff = 16;
     (["KELUAR", "MASUK", "NONE"] as FlowDirection[]).forEach(dir => {
       const count = dir === "NONE"
         ? arcs.filter(a => !a.direction || a.direction === "NONE").length
         : arcs.filter(a => a.direction === dir).length;
       if (count > 0) {
-        newStates[dir] = { x: xOff, y: Math.max(16, approxImgH - approxTableH(dir) - 16), scale: 1 };
+        newStates[dir] = { x: xOff, y: Math.max(16, approxImgH - approxTableH(dir) - 16), scaleX: 1, scaleY: 1 };
         xOff += TABLE_W;
       }
     });
@@ -663,7 +675,7 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
                 <div>
                   <span className="text-sm font-semibold text-white">Export Preview</span>
                   <span className="ml-2 text-xs text-muted uppercase tracking-wider">{previewData.format}</span>
-                  <span className="ml-3 text-xs text-muted/50">Drag each table individually · resize handle ↘</span>
+                  <span className="ml-3 text-xs text-muted/50">Drag each table individually · resize ↔ right/bottom edges · ↘ corner</span>
                 </div>
                 <button onClick={() => setPreviewData(null)} className="text-muted hover:text-white transition-colors text-lg leading-none">×</button>
               </div>
@@ -680,7 +692,7 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
                   {(["KELUAR", "MASUK", "NONE"] as FlowDirection[]).map(dir => {
                     const rows = dir === "KELUAR" ? keluarRows : dir === "MASUK" ? masukRows : noneRows;
                     if (rows.length === 0) return null;
-                    const s = sectionStates[dir] ?? { x: 16, y: 16, scale: 1 };
+                    const s = sectionStates[dir] ?? { x: 16, y: 16, scaleX: 1, scaleY: 1 };
                     return (
                       <div
                         key={dir}
@@ -688,18 +700,19 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
                           position: "absolute",
                           left: s.x,
                           top: s.y,
-                          transform: `scale(${s.scale})`,
+                          transform: `scale(${s.scaleX}, ${s.scaleY})`,
                           transformOrigin: "top left",
                           cursor: "grab",
                           userSelect: "none",
                           touchAction: "none",
                         }}
                         onPointerDown={(e) => {
-                          e.currentTarget.setPointerCapture(e.pointerId);
-                          const isResize = !!(e.target as HTMLElement).closest("[data-handle='resize']");
-                          if (isResize) {
-                            sectionResizeRef.current = { key: dir, sx: e.clientX, os: s.scale };
+                          const handle = (e.target as HTMLElement).closest<HTMLElement>("[data-handle]")?.dataset.handle;
+                          if (handle === "resize-h" || handle === "resize-v" || handle === "resize-d") {
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            sectionResizeRef.current = { key: dir, edge: handle === "resize-h" ? "h" : handle === "resize-v" ? "v" : "d", sx: e.clientX, sy: e.clientY, osx: s.scaleX, osy: s.scaleY };
                           } else {
+                            e.currentTarget.setPointerCapture(e.pointerId);
                             sectionDragRef.current = { key: dir, sx: e.clientX, sy: e.clientY, ox: s.x, oy: s.y };
                           }
                         }}
@@ -710,16 +723,36 @@ export default function DesireLineMap({ arcs, maxArcWidth, lineWeightMode, arrow
                           }
                           if (sectionResizeRef.current?.key === dir) {
                             const r = sectionResizeRef.current;
-                            setSectionStates(prev => ({ ...prev, [dir]: { ...prev[dir], scale: Math.max(0.4, Math.min(3, r.os + (e.clientX - r.sx) / 300)) } }));
+                            const dx = (e.clientX - r.sx) / 300;
+                            const dy = (e.clientY - r.sy) / 300;
+                            setSectionStates(prev => ({
+                              ...prev,
+                              [dir]: {
+                                ...prev[dir],
+                                scaleX: r.edge === "v" ? prev[dir].scaleX : Math.max(0.3, Math.min(4, r.osx + dx)),
+                                scaleY: r.edge === "h" ? prev[dir].scaleY : Math.max(0.3, Math.min(4, r.osy + dy)),
+                              },
+                            }));
                           }
                         }}
                         onPointerUp={() => { sectionDragRef.current = null; sectionResizeRef.current = null; }}
                       >
                         <div style={{ position: "relative", display: "inline-block" }}>
                           {renderSection(rows, dir)}
+                          {/* right edge — horizontal resize */}
                           <div
-                            data-handle="resize"
-                            style={{ position: "absolute", bottom: 0, right: 0, width: 16, height: 16, cursor: "se-resize", background: "rgba(99,102,241,0.6)", borderRadius: "0 0 4px 0", borderTop: "1px solid rgba(99,102,241,0.9)", borderLeft: "1px solid rgba(99,102,241,0.9)" }}
+                            data-handle="resize-h"
+                            style={{ position: "absolute", top: 0, right: -4, width: 8, height: "100%", cursor: "ew-resize", zIndex: 2 }}
+                          />
+                          {/* bottom edge — vertical resize */}
+                          <div
+                            data-handle="resize-v"
+                            style={{ position: "absolute", bottom: -4, left: 0, width: "100%", height: 8, cursor: "ns-resize", zIndex: 2 }}
+                          />
+                          {/* bottom-right corner — diagonal resize */}
+                          <div
+                            data-handle="resize-d"
+                            style={{ position: "absolute", bottom: 0, right: 0, width: 14, height: 14, cursor: "se-resize", background: "rgba(99,102,241,0.65)", borderRadius: "0 0 4px 0", borderTop: "1px solid rgba(99,102,241,0.95)", borderLeft: "1px solid rgba(99,102,241,0.95)", zIndex: 3 }}
                           />
                         </div>
                       </div>

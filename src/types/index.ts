@@ -1,6 +1,7 @@
 export type FlowDirection = "KELUAR" | "MASUK" | "NONE";
 export type LineWeightMode = "weighted" | "uniform";
 export type ArrowStyle = "none" | "arrowhead";
+export type AppMode = "launcher" | "desire-lines" | "train-processor";
 
 export interface DesireLineRecord {
   id: string;
@@ -33,4 +34,37 @@ export interface AppState {
   maxArcWidth: number;
   showLabels: boolean;
   unknownCities: string[];
+}
+
+export interface StationRecord {
+  singkatan: string;
+  daop: number;
+  kab_kota: string;
+  stasiun: string;
+}
+
+export interface TrainDataRow {
+  trainNum: string;
+  trainName: string;
+  departTime: string;
+  arrivalTime: string;
+  businessArea: string;
+  org: string;
+  des: string;
+  trainClass: string;
+  capacity: number;
+  wagon: number;
+  totalPassengers: number;
+  tanggal: string;
+  daopAsal: string;
+  kelas: string;
+  ket: string;
+  psgKm: string;
+  occupancy: string;
+  revenue: string;
+  pointRevenue: string;
+  nettRevenue: string;
+  daerahAsal: string;
+  daopTujuan: string;
+  daerahTujuan: string;
 }
