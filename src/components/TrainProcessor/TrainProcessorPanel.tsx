@@ -434,15 +434,6 @@ export default function TrainProcessorPanel({ onBack }: TrainProcessorPanelProps
               />
             </div>
             <div className="text-xs text-muted/60">Processing rows, please wait</div>
-            <div className="flex gap-1.5 mt-1">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-amber-400/60"
-                  style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
-                />
-              ))}
-            </div>
           </div>
         )}
 
