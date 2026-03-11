@@ -188,10 +188,9 @@ export function filterTrainData(
   rows: TrainDataRow[],
   targetDaop: string
 ): { internal: TrainDataRow[]; incoming: TrainDataRow[] } {
-  const pattern = new RegExp(`\\bDAOP\\s+${targetDaop}\\b`, "i");
-  const internal = rows.filter((r) => pattern.test(r.businessArea));
+  const internal = rows.filter((r) => String(r.daopAsal) === targetDaop);
   const incoming = rows.filter(
-    (r) => r.daopTujuan === targetDaop && !pattern.test(r.businessArea)
+    (r) => String(r.daopTujuan) === targetDaop && String(r.daopAsal) !== targetDaop
   );
   return { internal, incoming };
 }
